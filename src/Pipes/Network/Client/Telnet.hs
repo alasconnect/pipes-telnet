@@ -112,10 +112,10 @@ squash cs = Just . pack . fmap cmdToCode $ cs
 -- TODO: This needs more extensive testing.
 telnetHandler :: [Cmd] -> (Maybe ByteString, Maybe ByteString)
 telnetHandler [Misc w]            = (Just . singleton $ w, Nothing)
-telnetHandler [IAC, WILL, Misc a] = (Nothing, squash [IAC, WILL, Misc a])
-telnetHandler [IAC, DO,   Misc a] = (Nothing, squash [IAC, DO  , Misc a])
-telnetHandler [IAC, WONT, Misc a] = (Nothing, squash [IAC, WONT, Misc a])
-telnetHandler [IAC, DONT, Misc a] = (Nothing, squash [IAC, DONT, Misc a])
+telnetHandler [IAC, WILL, Misc a] = (Nothing, squash [IAC, DO,   Misc a])
+telnetHandler [IAC, DO,   Misc a] = (Nothing, squash [IAC, WILL, Misc a])
+telnetHandler [IAC, WONT, Misc a] = (Nothing, squash [IAC, DONT, Misc a])
+telnetHandler [IAC, DONT, Misc a] = (Nothing, squash [IAC, WONT, Misc a])
 telnetHandler [IAC, SB,   Misc a, Misc 1, IAC, SB] =
   (Nothing, squash [IAC, SB, Misc a, Misc 0, IAC, SE]) -- not exactly valid
 telnetHandler _ = (Nothing, Nothing)
