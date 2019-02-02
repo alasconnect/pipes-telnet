@@ -4,6 +4,10 @@
 module Main where
 
 import Control.Applicative ((<|>))
+import Control.Monad (void)
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Lazy (StateT, runStateT, get, put)
 import Data.Attoparsec.ByteString.Char8
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (unpack)
@@ -14,6 +18,14 @@ import Pipes.Network.Client.Telnet
 type Time  = String
 type Date  = String
 type Place = String
+
+type MyState a = StateT WeatherState IO a
+
+data WeatherState
+  = Started
+  | Requesting
+  | ReceivedData Command
+  deriving (Show, Eq)
 
 data Command
   = Enter String
@@ -29,7 +41,7 @@ addr = "rainmaker.wunderground.com"
 port :: String
 port = "23"
 
--- this service has the following order instead of \r\n for some reason 
+-- this service has the following order instead of \r\n for some reason
 weirdLine :: Parser ()
 weirdLine = do
   char '\n'
@@ -62,7 +74,7 @@ dataWeather = do
   char ':'
   m <- count 2 digit
   space
-  x <- string "AM" <|> string "PM"  
+  x <- string "AM" <|> string "PM"
   space
   z <- takeTill (== ' ')
   string " on "
@@ -98,12 +110,29 @@ commandReader =
   <|> dataWeather
   <|> dataVarious
 
-commandHandler :: () -> Command -> ((), Maybe ByteString)
-commandHandler s Enter{}   = (s, Just "\n")
-commandHandler s Input{}   = (s, Just "anc\n")
-commandHandler s Menu{}    = (s, Just "x\n")
-commandHandler s Weather{} = (s, Nothing)
-commandHandler s _         = (s, Nothing)
+commandHandler :: WeatherState -> Command -> MyState (WeatherState, Maybe ByteString)
+commandHandler s Enter{}     = return (s, Just "\n")
+commandHandler s Input{}     = updateState Requesting >> return (s, Just "anc\n")
+commandHandler s Menu{}      = return (s, Just "X\n")
+commandHandler s w@Weather{} = updateState (ReceivedData w) >> return (s, Nothing)
+commandHandler s _           = return (s, Nothing)
+
+updateState :: WeatherState -> MyState ()
+updateState s = do
+  put s
+  io $ print s
 
 main :: IO ()
-main = runTelnet addr port () commandReader commandHandler >>= print
+main = void (runStateT code Started)
+
+code :: MyState ()
+code = do
+  s <- get
+  io $ print $ "Initial State: " ++ show s
+  void (runTelnet addr port s commandReader commandHandler)
+  s <- get
+  io $ print $ "Final State: " ++ show s
+  return ()
+
+io :: IO a -> MyState a
+io = liftIO
