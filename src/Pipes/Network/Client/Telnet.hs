@@ -20,7 +20,7 @@ import Pipes.Attoparsec (parse)
 import Pipes.ByteString (ByteString)
 import Pipes.Network.TCP (fromSocket, toSocket)
 import Pipes.Parse (runStateT)
-import Pipes.Safe (MonadMask, runSafeT)
+import Pipes.Safe (MonadMask, runSafeT, liftBase)
 
 newtype TelnetError = TelnetError String deriving (Show)
 
@@ -45,7 +45,7 @@ cmdToCode DONT     = 252
 cmdToCode WILL     = 253
 cmdToCode WONT     = 254
 cmdToCode IAC      = 255
-cmdToCode (Misc w) = w  
+cmdToCode (Misc w) = w
 
 codeToCmd :: Word8 -> Cmd
 codeToCmd 240 = SE
@@ -123,7 +123,7 @@ telnetHandler _ = (Nothing, Nothing)
 {-| 'runTelnet' takes an initial state, an attoparsec parser, and a handler
     which will both maintain application specific state and emit the correct
     commands to the server based on the input and/or current state.
-    
+
     Returns either a 'TelnetError' on failure, or '()' on success.
 -}
 runTelnet :: (MonadIO m, MonadMask m, Show a)
@@ -131,12 +131,12 @@ runTelnet :: (MonadIO m, MonadMask m, Show a)
           -> String                            -- Port
           -> s                                 -- Initial State
           -> A.Parser a                        -- Input Parser
-          -> (s -> a -> (s, Maybe ByteString)) -- Output / State Handler
+          -> (s -> a -> m (s, Maybe ByteString)) -- Output / State Handler
           -> m (Either TelnetError ())
 runTelnet host port s i o =
   N.connect host port $ \(sock, _) -> do
     r <- runSafeT $ runEffect $
-      run (codes sock $ fromSocket sock 4096) >-> sout >-> emit sock s
+      run (codes sock $ fromSocket sock 4096) >-> emit sock s
     N.closeSock sock
     return r
   where
@@ -153,7 +153,7 @@ runTelnet host port s i o =
               let (fwd, out) = telnetHandler v0
               forM_ out yield >-> toSocket sock
               forM_ fwd yield >> codes sock p'
-         
+
     -- Run the outter application specific parser.
     -- Pass the parsed data forward.
     run p = do
@@ -165,16 +165,10 @@ runTelnet host port s i o =
             Left err -> return . Left . TelnetError . show $ err
             Right v  -> yield v >> run p'
 
-    -- Output the data passed along to stdout.
-    sout = forever $ do
-      v <- await
-      yield (show v) >-> stdoutLn
-      yield v
-
     -- Update the application state with the parsed command and see if it emits
     -- a command to send along to the socket.
     emit sock s0 = do
       v0 <- await
-      let (s1, v1) = o s0 v0
+      (s1, v1) <- liftBase $ o s0 v0
       forM_ v1 yield >-> toSocket sock
       emit sock s1
