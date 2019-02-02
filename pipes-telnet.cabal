@@ -37,6 +37,7 @@ executable pipes-telnet-example
                      , pipes-telnet
                      , attoparsec >= 0.13
                      , bytestring >= 0.10
+                     , transformers >= 0.5
   default-language:    Haskell2010
 
 test-suite pipes-telnet-test
